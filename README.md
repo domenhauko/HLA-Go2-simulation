@@ -1,283 +1,222 @@
-# HLA-Go2-simulation
-In this repository it is implemented a Gazebo and ROS2 based simulation for the Unitree Go2 robot as well as a MQTT gateway to a HLA simulation. HLA is implemented with Portico RTI.
+# HLA-Go2-Simulation
 
-## Resources
-This project is based on a github repo https://github.com/anujjain-dev/unitree-go2-ros2 and uses Portico https://github.com/openlvc/portico
+A **Gazebo + ROS 2** simulation for the [Unitree Go2](https://www.unitree.com/go2/) robot, with an MQTT gateway bridging into an HLA simulation powered by [Portico RTI](https://github.com/openlvc/portico).
 
-## Setup
-This setup uses Ubuntu 22.04 and Gazebo version 11.10.2 and ROS2 Huumble. THe Anujjain repo is specifically written for this combination so unfortunatelly it doesn't work with other ROS2 versions.
-(To check your versions: 
-Ubuntu: lsb_release -a
-Gazebo: gazebo --version
-ROS: $echo ROS_DISTRO)
+---
 
-## Pipeline
-GAZEBO simulation of Unitree Go2 robot and teleoperation -> MQTT adapter and receveiver for /odom topic -> HLA viewer
+## 📋 Overview
 
-### Terminals setup
-------------------------------------------------------------------------------
-TERMINAL 1 — Launch the Go2 simulation
-------------------------------------------------------------------------------
+```
+Gazebo (Go2 simulation) → Teleoperation → /odom topic
+    → MQTT Adapter → MQTT Broker → HLA Viewer
+```
 
-Source ROS 2 and your workspace:
+This project establishes a stable, transport-facing pipeline where robot odometry is captured, logged to CSV, and published as JSON over MQTT — forming the foundation for a full HLA gateway integration.
 
-    source /opt/ros/humble/setup.bash
-    source ~/go2_ws/install/setup.bash
+---
 
-RUN:
+## ⚙️ Requirements
 
-	ros2 launch go2_config gazebo.launch.py rviz:=true
-	
-With Velodyne:
-	
-	ros2 launch go2_config gazebo_velodyne.launch.py rviz:=true
+| Component | Version |
+|-----------|---------|
+| Ubuntu    | 22.04   |
+| ROS 2     | Humble  |
+| Gazebo    | 11.10.2 |
 
-Note:
-    The exact launch command depends on how you set up the repository.
-    Use the command from your local Go2 simulation setup that already works.
+> **Note:** This setup is specifically built around the [anujjain-dev/unitree-go2-ros2](https://github.com/anujjain-dev/unitree-go2-ros2) repository, which only supports this exact combination of Ubuntu, ROS 2, and Gazebo.
 
-Expected result:
-    Gazebo opens and the Go2 robot appears.
+### Check your versions
+```bash
+lsb_release -a          # Ubuntu
+gazebo --version        # Gazebo
+echo $ROS_DISTRO        # ROS 2
+```
 
-------------------------------------------------------------------------------
-TERMINAL 2 — Teleoperate the robot
-------------------------------------------------------------------------------
+---
 
-Source ROS 2 and your workspace:
+## 🚀 Setup
 
-    source /opt/ros/humble/setup.bash
-    source ~/ros2_ws/install/setup.bash
+### Terminal 1 — Launch the Go2 Simulation
 
-Run your teleoperation command.
-    
-    ros2 run teleop_twist_keyboard teleop_twist_keyboard
+```bash
+source /opt/ros/humble/setup.bash
+source ~/go2_ws/install/setup.bash
 
-Expected result:
-    The Go2 moves in Gazebo and /odom changes accordingly.
+# Standard launch
+ros2 launch go2_config gazebo.launch.py rviz:=true
 
-------------------------------------------------------------------------------
-TERMINAL 3 — Verify MQTT messages with a subscriber
-------------------------------------------------------------------------------
+# With Velodyne lidar
+ros2 launch go2_config gazebo_velodyne.launch.py rviz:=true
+```
 
-Run:
+**Expected result:** Gazebo opens with the Go2 robot loaded.
 
-    mosquitto_sub -h 127.0.0.1 -t go2/vehicle_state
+---
 
-Expected result:
-    This terminal waits silently until messages are published.
+### Terminal 2 — Teleoperate the Robot
 
-------------------------------------------------------------------------------
-TERMINAL 4 — Run the compact adapter
-------------------------------------------------------------------------------
+```bash
+source /opt/ros/humble/setup.bash
+source ~/ros2_ws/install/setup.bash
 
-Go to the folder containing compact_odom_adapter.py, then source ROS 2:
+ros2 run teleop_twist_keyboard teleop_twist_keyboard
+```
 
-    cd /path/to/your/project
-    source /opt/ros/humble/setup.bash
-    source ~/ros2_ws/install/setup.bash
+**Expected result:** The Go2 moves in Gazebo and `/odom` updates accordingly.
 
-Run the adapter:
+---
 
-    python3 compact_odom_adapter.py --ros-args \
-      -p robot_id:=go2_001 \
-      -p publish_rate_hz:=20.0 \
-      -p csv_filename:=logs/go2_vehicle_state.csv \
-      -p mqtt_broker:=127.0.0.1 \
-      -p mqtt_port:=1883 \
-      -p mqtt_topic:=go2/vehicle_state
+### Terminal 3 — Monitor MQTT Messages
 
-Explanation of parameters:
+```bash
+mosquitto_sub -h 127.0.0.1 -t go2/vehicle_state
+```
 
-    robot_id
-        Logical identifier of the robot
+**Expected result:** Terminal waits silently until the adapter starts publishing.
 
-    publish_rate_hz
-        Fixed-rate publication/logging frequency of compact VehicleState
+---
 
-    csv_filename
-        Output CSV file path
+### Terminal 4 — Run the Compact ODOM Adapter
 
-    mqtt_broker
-        Broker IP or hostname
+```bash
+cd /path/to/your/project
+source /opt/ros/humble/setup.bash
+source ~/ros2_ws/install/setup.bash
 
-    mqtt_port
-        Broker port
+python3 compact_odom_adapter.py --ros-args \
+  -p robot_id:=go2_001 \
+  -p publish_rate_hz:=20.0 \
+  -p csv_filename:=logs/go2_vehicle_state.csv \
+  -p mqtt_broker:=127.0.0.1 \
+  -p mqtt_port:=1883 \
+  -p mqtt_topic:=go2/vehicle_state
+```
 
-    mqtt_topic
-        Topic used for publishing JSON VehicleState
+**Parameters:**
 
-10. EXPECTED OUTPUTS
---------------------------------------------------------------------------------
+| Parameter          | Description                                      |
+|--------------------|--------------------------------------------------|
+| `robot_id`         | Logical identifier for the robot                 |
+| `publish_rate_hz`  | Fixed-rate publication/logging frequency (Hz)    |
+| `csv_filename`     | Output CSV file path                             |
+| `mqtt_broker`      | MQTT broker IP or hostname                       |
+| `mqtt_port`        | MQTT broker port                                 |
+| `mqtt_topic`       | Topic used for publishing JSON `VehicleState`    |
 
-A) EXPECTED RESULT IN TERMINAL 4 (adapter)
-------------------------------------------
+---
 
-When the adapter starts successfully, you should see something like:
+## ✅ Expected Outputs
 
-    CompactOdomAdapter started | odom_topic=/odom | robot_id=go2_001 |
-    publish_rate_hz=20.0 | csv_enabled=True | mqtt_enabled=True
+### Adapter (Terminal 4)
 
-When MQTT connects:
+On startup:
+```
+CompactOdomAdapter started | odom_topic=/odom | robot_id=go2_001 | publish_rate_hz=20.0 | csv_enabled=True | mqtt_enabled=True
+MQTT connected to 127.0.0.1:1883, publishing to go2/vehicle_state
+```
 
-    MQTT connected to 127.0.0.1:1883, publishing to go2/vehicle_state
+While running:
+```
+[VehicleState seq=1] id=go2_001 | dt=50.00 ms | x=0.012 y=0.001 | yaw=0.005 rad (0.3 deg) | v=0.250 m/s w=0.020 rad/s
+```
 
-Then repeatedly while the simulation is running:
+- `seq` increments by 1 each cycle
+- `dt` stays close to the configured publish period
+- `x`, `y`, `yaw`, `v`, `w` change with robot motion
 
-    [VehicleState seq=0] id=go2_001 | dt=n/a | x=0.000 y=0.000
-    yaw=0.000 rad (0.0 deg) | v=0.000 m/s w=0.000 rad/s
+### MQTT Subscriber (Terminal 3)
 
-    [VehicleState seq=1] id=go2_001 | dt=50.00 ms | x=0.012 y=0.001
-    yaw=0.005 rad (0.3 deg) | v=0.250 m/s w=0.020 rad/s
+```json
+{
+  "robot_id": "go2_001",
+  "seq": 42,
+  "timestamp_ns": 1712345678901234567,
+  "publish_time_ns": 1712345678910000000,
+  "x": 1.234,
+  "y": -0.456,
+  "yaw": 0.785,
+  "v_linear": 0.600,
+  "v_angular": 0.120
+}
+```
 
-The exact numbers will vary, but you should see:
+### CSV Log (`logs/go2_vehicle_state.csv`)
 
-    - seq increasing by 1
-    - dt close to the chosen publish period
-    - x and y changing when the robot moves
-    - yaw changing when the robot turns
-    - v and w changing with teleoperation
+```
+seq,robot_id,timestamp_ns,publish_time_ns,publish_dt_ms,x,y,yaw_rad,yaw_deg,v_linear,v_angular
+```
 
-B) EXPECTED RESULT IN TERMINAL 3 (MQTT subscriber)
---------------------------------------------------
+- `seq` increases monotonically
+- `publish_dt_ms` stays close to the configured publish period
+- `yaw_rad` and `yaw_deg` are consistent with each other
+- All values reflect live teleoperation input
 
-When the adapter is publishing, you should see JSON messages like:
+---
 
-    {"robot_id":"go2_001","seq":42,"timestamp_ns":1712345678901234567,
-     "publish_time_ns":1712345678910000000,"x":1.234,"y":-0.456,
-     "yaw":0.785,"v_linear":0.600,"v_angular":0.120}
+## 🔧 Troubleshooting
 
-The exact formatting may vary slightly, but the content should match the fields
-above.
+<details>
+<summary><strong>MQTT connection refused</strong></summary>
 
-C) EXPECTED RESULT IN THE CSV FILE
-----------------------------------
+```
+Error: Connection refused
+```
 
-The adapter should create a CSV file at:
+The local MQTT broker is not running. Start it with:
 
-    logs/go2_vehicle_state.csv
+```bash
+sudo systemctl start mosquitto
+```
 
-The CSV header should look like:
+Then retry `mosquitto_sub`.
 
-    seq,robot_id,timestamp_ns,publish_time_ns,publish_dt_ms,x,y,yaw_rad,
-    yaw_deg,v_linear,v_angular
+</details>
 
-Each row should contain one compact VehicleState sample.
+<details>
+<summary><strong>Adapter prints "No /odom received yet"</strong></summary>
 
-Expected properties of the CSV:
+The simulation is not running, or the topic name differs. Check available topics:
 
-    - seq increases monotonically
-    - publish_dt_ms is close to the chosen publish period
-    - x and y change with robot movement
-    - yaw_rad and yaw_deg correspond correctly
-    - v_linear and v_angular follow teleoperation
+```bash
+ros2 topic list
+ros2 topic echo /odom
+```
 
-D) EXPECTED RESULT IN GAZEBO
-----------------------------
+If the odom topic has a different name, pass it explicitly:
 
-When teleoperation is active:
+```bash
+python3 compact_odom_adapter.py --ros-args \
+  -p odom_topic:=/your_actual_odom_topic
+```
 
-    - the robot should move in the simulator
-    - /odom should change accordingly
-    - adapter output should reflect the motion
-    - MQTT JSON and CSV logs should reflect the same motion
+</details>
 
-11. QUICK TROUBLESHOOTING
---------------------------------------------------------------------------------
+<details>
+<summary><strong>CSV is created but MQTT subscriber receives nothing</strong></summary>
 
-Problem:
-    mosquitto_sub -h 127.0.0.1 -t go2/vehicle_state
-    returns:
-        Error: Connection refused
+Check the adapter terminal for this line:
+```
+MQTT connected to 127.0.0.1:1883, publishing to go2/vehicle_state
+```
 
-Cause:
-    No local MQTT broker is running.
+If missing, verify the broker IP, topic name, and that the broker is running.
 
-Fix:
-    Start Mosquitto:
+</details>
 
-        sudo systemctl start mosquitto
+<details>
+<summary><strong>Robot moves in Gazebo but adapter values don't change</strong></summary>
 
-Then retry:
+You may be subscribed to the wrong odometry topic. Confirm `/odom` is the active stream:
 
-        mosquitto_sub -h 127.0.0.1 -t go2/vehicle_state
+```bash
+ros2 topic echo /odom
+```
 
-Problem:
-    Adapter prints:
-        No /odom received yet
+</details>
 
-Cause:
-    The simulation is not running, or the topic name is different.
+---
 
-Fix:
-    Check:
+## 📚 Resources
 
-        ros2 topic list
-        ros2 topic echo /odom
-
-If the odom topic has a different name, run the adapter with:
-
-    python3 compact_odom_adapter.py --ros-args \
-      -p odom_topic:=/your_actual_odom_topic
-
-Problem:
-    CSV file is created, but MQTT subscriber shows nothing
-
-Possible causes:
-    - wrong broker IP
-    - wrong topic
-    - broker not running
-    - adapter failed MQTT connect
-
-Fix:
-    Check adapter terminal for:
-
-        MQTT connected to 127.0.0.1:1883, publishing to go2/vehicle_state
-
-Problem:
-    The robot moves in Gazebo but values do not change
-
-Cause:
-    The wrong topic is being subscribed to.
-
-Fix:
-    Confirm that /odom is the actual moving odometry stream.
-
-
-12. WHAT HAS BEEN PROVEN SO FAR
---------------------------------------------------------------------------------
-
-At this point, the following has been successfully demonstrated:
-
-    - Go2 simulation runs in Gazebo
-    - teleoperation works
-    - /odom is readable from ROS 2
-    - a ROS 2 node can subscribe to /odom
-    - a compact transport-facing VehicleState can be built
-    - the state can be logged to CSV
-    - the state can be published as MQTT JSON
-    - a local MQTT subscriber can receive the state
-
-This is the first stable transport-facing milestone of the project.
-
-
-13. NOTES
---------------------------------------------------------------------------------
-
-This README documents only the current working milestone.
-
-The implementation was intentionally kept simple to establish a stable base
-before introducing:
-
-    - protobuf / gRPC transport
-    - HLA gateway integration
-    - FOM mapping
-    - IMU and other sensors
-    - command return path
-    - latency/jitter instrumentation beyond basic logging
-
-Once the MQTT receiver is added and verified, the project can move into the
-gateway and HLA integration phase.
-
-================================================================================
-END OF README
-================================================================================
+- [anujjain-dev/unitree-go2-ros2](https://github.com/anujjain-dev/unitree-go2-ros2) — base simulation repository
+- [openlvc/portico](https://github.com/openlvc/portico) — Portico RTI (HLA implementation)
