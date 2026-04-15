@@ -1,155 +1,74 @@
 #!/usr/bin/env python3
 
+import os
 import json
 import time
+from pathlib import Path
+
 import jpype
 import jpype.imports
 from jpype import JProxy
-
 import paho.mqtt.client as mqtt
+from queue import Queue, Empty
 
 # ----------------------- HLA CONFIG ------------------------
-PRTI_HOME = r"C:\Program Files\portico-2.1.3"
-JVM_DLL = r"C:\Program Files\portico-2.1.3\jre\bin\server\jvm.dll"
-LOCAL_SETTINGS = "127.0.0.1:8989"
+PRTI_HOME = os.environ.get(
+    "RTI_HOME",
+    "/home/domen/Documents/LAK/portico-2.1.4"
+)
+LOCAL_SETTINGS = "192.168.0.100:8989"
 FEDERATION_NAME = "DemoFederation"
 FEDERATE_NAME = "GatewayFederate"
 FEDERATE_TYPE = "Gateway"
 OBJECT_CLASS_FQN = "HLAobjectRoot.Vehicle"
 
+ATTR_X = "x"
+ATTR_Y = "y"
+ATTR_YAW = "yaw"
+
 # ----------------------- MQTT CONFIG ------------------------
-MQTT_BROKER = "127.0.0.1"  # Same as the sender broker
+MQTT_BROKER = "127.0.0.1"
 MQTT_PORT = 1883
 MQTT_TOPIC = "go2/vehicle_state"
 MQTT_CLIENT_ID = "HLA_Gateway_Client"
 
-# ----------------------- MQTT RECEIVER ----------------------
-class MqttReceiver:
-    def __init__(self, broker: str, port: int, topic: str, client_id: str) -> None:
-        self.broker = broker
-        self.port = port
-        self.topic = topic
-        self.client_id = client_id
-        self.client = mqtt.Client(client_id=self.client_id)
 
-        # MQTT Callbacks
-        self.client.on_connect = self.on_connect
-        self.client.on_message = self.on_message
+def ensure_jvm():
+    if jpype.isJVMStarted():
+        return
 
-        self.client.connect(self.broker, self.port, keepalive=60)
-        self.client.loop_start()
+    jvm_path = "/usr/lib/jvm/java-11-openjdk-amd64/lib/server/libjvm.so"
+    portico_jar = os.path.join(PRTI_HOME, "lib", "portico.jar")
 
-    def on_connect(self, client, userdata, flags, rc):
-        """MQTT connection handler"""
-        if rc == 0:
-            print(f"Connected to {self.broker}:{self.port} successfully.")
-            self.client.subscribe(self.topic, qos=1)
-        else:
-            print(f"Failed to connect to MQTT broker, return code: {rc}")
+    if not os.path.exists(jvm_path):
+        raise RuntimeError(f"Linux JVM not found: {jvm_path}")
+    if not os.path.exists(portico_jar):
+        raise RuntimeError(f"Portico jar not found: {portico_jar}")
 
-    def on_message(self, client, userdata, msg):
-        """Message handler for receiving and parsing JSON"""
-        try:
-            payload = msg.payload.decode('utf-8')
-            data = json.loads(payload)
+    jpype.startJVM(
+        jvm_path,
+        classpath=[portico_jar],
+        convertStrings=False
+    )
+    print(f"[JVM] Started with {portico_jar}")
 
-            # Validate and process the VehicleState
-            self.process_vehicle_state(data)
 
-        except json.JSONDecodeError as e:
-            print(f"Failed to decode JSON message: {e}")
-        except Exception as e:
-            print(f"Error processing message: {e}")
+def get_fom_modules():
+    project_dir = Path(__file__).resolve().parent
+    fom_file = project_dir / "VehicleFOM.xml"
 
-    def process_vehicle_state(self, data: dict):
-        """Map VehicleState to HLA attributes and send"""
-        try:
-            robot_id = data.get("robot_id", "N/A")
-            seq = data.get("seq", -1)
-            timestamp_ns = data.get("timestamp_ns", -1)
-            publish_time_ns = data.get("publish_time_ns", -1)
-            x = data.get("x", 0.0)
-            y = data.get("y", 0.0)
-            yaw = data.get("yaw", 0.0)
-            v_linear = data.get("v_linear", 0.0)
-            v_angular = data.get("v_angular", 0.0)
+    if not fom_file.exists():
+        raise RuntimeError(f"FOM file not found: {fom_file}")
 
-            print(f"[Received VehicleState] seq={seq}, robot_id={robot_id}, "
-                  f"x={x}, y={y}, yaw={yaw}, v_linear={v_linear}, v_angular={v_angular}")
+    File = jpype.JClass("java.io.File")
+    URL = jpype.JClass("java.net.URL")
 
-            # Send data to HLA federation
-            self.send_to_hla(seq, robot_id, timestamp_ns, publish_time_ns, x, y, yaw, v_linear, v_angular)
-
-        except Exception as e:
-            print(f"Error processing VehicleState: {e}")
-
-    def send_to_hla(self, seq, robot_id, timestamp_ns, publish_time_ns, x, y, yaw, v_linear, v_angular):
-        """Send the VehicleState data to the HLA federation"""
-        try:
-            # Ensure JVM is started
-            ensure_jvm()
-
-            # Create the HLA object with attributes
-            RtiFactoryFactory = jpype.JClass("hla.rti1516e.RtiFactoryFactory")
-            rti_factory = RtiFactoryFactory.getRtiFactory()
-            rtia = rti_factory.getRtiAmbassador()
-            encoder_factory = rti_factory.getEncoderFactory()
-
-            fedamb_impl = DummyAmbassador()
-            fedamb = JProxy("hla.rti1516e.FederateAmbassador", inst=fedamb_impl)
-
-            # Connect to the RTI
-            rtia.connect(fedamb, jpype.JClass("hla.rti1516e.CallbackModel").HLA_EVOKED, LOCAL_SETTINGS)
-            rtia.joinFederationExecution(FEDERATE_NAME, FEDERATE_TYPE, FEDERATION_NAME)
-
-            # Get the object class handle
-            vehicle_class = rtia.getObjectClassHandle(OBJECT_CLASS_FQN)
-
-            # Set up HLA object attribute handles (map fields to HLA attributes)
-            h_id = rtia.getAttributeHandle(vehicle_class, "id")
-            h_x = rtia.getAttributeHandle(vehicle_class, "x")
-            h_y = rtia.getAttributeHandle(vehicle_class, "y")
-            h_yaw = rtia.getAttributeHandle(vehicle_class, "yaw")
-            h_v_linear = rtia.getAttributeHandle(vehicle_class, "v_linear")
-            h_v_angular = rtia.getAttributeHandle(vehicle_class, "v_angular")
-
-            # Update the object instance with new attribute values
-            obj_handle = rtia.registerObjectInstance(vehicle_class)
-
-            # Prepare parameter map
-            phvm = rtia.getParameterHandleValueMapFactory().create(6)
-            enc = encoder_factory.createHLAunicodeString()
-            enc.setValue(str(robot_id))  # Robot ID
-            phvm.put(h_id, enc.toByteArray())
-
-            enc = encoder_factory.createHLAfloat64BE()
-            enc.setValue(x)  # Position X
-            phvm.put(h_x, enc.toByteArray())
-
-            enc.setValue(y)  # Position Y
-            phvm.put(h_y, enc.toByteArray())
-
-            enc.setValue(yaw)  # Yaw angle
-            phvm.put(h_yaw, enc.toByteArray())
-
-            enc.setValue(v_linear)  # Linear velocity
-            phvm.put(h_v_linear, enc.toByteArray())
-
-            enc.setValue(v_angular)  # Angular velocity
-            phvm.put(h_v_angular, enc.toByteArray())
-
-            # Send the update to the RTI
-            rtia.updateAttributeValues(obj_handle, phvm, b"gateway")
-
-            print(f"[HLA Sent] seq={seq} robot_id={robot_id} | x={x}, y={y}, yaw={yaw}, "
-                  f"v_linear={v_linear}, v_angular={v_angular}")
-
-        except Exception as e:
-            print(f"Error sending data to HLA: {e}")
+    return jpype.JArray(URL)([
+        File(str(fom_file)).toURI().toURL()
+    ])
 
 
 class DummyAmbassador:
-    """Dummy HLA ambassador implementation."""
     def synchronizationPointRegistrationSucceeded(self, label):
         pass
 
@@ -165,31 +84,209 @@ class DummyAmbassador:
     def receiveInteraction(self, *args):
         pass
 
+    def discoverObjectInstance(self, *args):
+        pass
 
-def ensure_jvm():
-    """Ensure JVM is started for HLA operations."""
-    if jpype.isJVMStarted():
-        return
+    def reflectAttributeValues(self, *args):
+        pass
 
-    jpype.startJVM(
-        JVM_DLL,
-        classpath=[
-            f"{PRTI_HOME}/lib/prti1516e.jar",
-            f"{PRTI_HOME}/lib/hla1516e.jar"
-        ]
-    )
+    def removeObjectInstance(self, *args):
+        pass
+
+
+class HlaPublisher:
+    def __init__(self):
+        ensure_jvm()
+
+        self.RtiFactoryFactory = jpype.JClass("hla.rti1516e.RtiFactoryFactory")
+        self.CallbackModel = jpype.JClass("hla.rti1516e.CallbackModel")
+        self.ResignAction = jpype.JClass("hla.rti1516e.ResignAction")
+
+        self.rti_factory = self.RtiFactoryFactory.getRtiFactory()
+        self.rtia = self.rti_factory.getRtiAmbassador()
+        self.encoder_factory = self.rti_factory.getEncoderFactory()
+
+        self.fedamb_impl = DummyAmbassador()
+        self.fedamb = JProxy("hla.rti1516e.FederateAmbassador", inst=self.fedamb_impl)
+
+        self.vehicle_class = None
+        self.obj_handle = None
+        self.h_x = None
+        self.h_y = None
+        self.h_yaw = None
+
+        self._connected = False
+        self._joined = False
+
+        self._setup_hla()
+
+    def _setup_hla(self):
+        modules = get_fom_modules()
+
+        if not self._connected:
+            self.rtia.connect(self.fedamb, self.CallbackModel.HLA_EVOKED, LOCAL_SETTINGS)
+            self._connected = True
+            print("[HLA] Connected to RTI")
+
+        try:
+            self.rtia.createFederationExecution(FEDERATION_NAME, modules)
+            print(f"[HLA] Created federation: {FEDERATION_NAME}")
+        except Exception as e:
+            print(f"[HLA] Federation may already exist: {e}")
+
+        if not self._joined:
+            self.rtia.joinFederationExecution(
+                FEDERATE_NAME,
+                FEDERATE_TYPE,
+                FEDERATION_NAME,
+                modules
+            )
+            self._joined = True
+            print(f"[HLA] Joined federation: {FEDERATION_NAME}")
+
+        self.vehicle_class = self.rtia.getObjectClassHandle(OBJECT_CLASS_FQN)
+
+        self.h_x = self.rtia.getAttributeHandle(self.vehicle_class, ATTR_X)
+        self.h_y = self.rtia.getAttributeHandle(self.vehicle_class, ATTR_Y)
+        self.h_yaw = self.rtia.getAttributeHandle(self.vehicle_class, ATTR_YAW)
+
+        ahs = self.rtia.getAttributeHandleSetFactory().create()
+        ahs.add(self.h_x)
+        ahs.add(self.h_y)
+        ahs.add(self.h_yaw)
+
+        self.rtia.publishObjectClassAttributes(self.vehicle_class, ahs)
+        self.obj_handle = self.rtia.registerObjectInstance(self.vehicle_class)
+        print("[HLA] Registered Vehicle object")
+        print(f"[HLA] vehicle_class={self.vehicle_class}")
+        print(f"[HLA] handle x={self.h_x}, y={self.h_y}, yaw={self.h_yaw}")
+        print(f"[HLA] object handle={self.obj_handle}")
+
+    def publish_vehicle_state(self, x: float, y: float, yaw: float):
+        if self.obj_handle is None:
+            raise RuntimeError("HLA object handle is not initialized")
+
+        ahvm = self.rtia.getAttributeHandleValueMapFactory().create(3)
+
+        enc = self.encoder_factory.createHLAfloat64BE()
+
+        enc.setValue(float(x))
+        ahvm.put(self.h_x, enc.toByteArray())
+
+        enc.setValue(float(y))
+        ahvm.put(self.h_y, enc.toByteArray())
+
+        enc.setValue(float(yaw))
+        ahvm.put(self.h_yaw, enc.toByteArray())
+
+        self.rtia.updateAttributeValues(self.obj_handle, ahvm, b"gateway")
+        self.rtia.evokeMultipleCallbacks(0.001, 0.01)
+
+    def shutdown(self):
+        try:
+            if self._joined:
+                self.rtia.resignFederationExecution(self.ResignAction.NO_ACTION)
+                print("[HLA] Resigned federation")
+        except Exception as e:
+            print(f"[HLA] Resign skipped: {e}")
+
+
+class MqttReceiver:
+    def __init__(self, broker: str, port: int, topic: str, client_id: str) -> None:
+        self.broker = broker
+        self.port = port
+        self.topic = topic
+        self.client_id = client_id
+        self.client = mqtt.Client(client_id=self.client_id)
+
+        self.hla = HlaPublisher()
+
+        self.client.on_connect = self.on_connect
+        self.client.on_message = self.on_message
+
+        self.client.connect(self.broker, self.port, keepalive=60)
+        self.client.loop_start()
+
+        self.state_queue = Queue()
+
+    def on_connect(self, client, userdata, flags, rc):
+        if rc == 0:
+            print(f"Connected to {self.broker}:{self.port} successfully.")
+            self.client.subscribe(self.topic, qos=1)
+        else:
+            print(f"Failed to connect to MQTT broker, return code: {rc}")
+
+    def on_message(self, client, userdata, msg):
+        try:
+            payload = msg.payload.decode("utf-8")
+            data = json.loads(payload)
+            self.process_vehicle_state(data)
+        except json.JSONDecodeError as e:
+            print(f"Failed to decode JSON message: {e}")
+        except Exception as e:
+            print(f"Error processing message: {e}")
+
+    def process_vehicle_state(self, data: dict):
+        try:
+            robot_id = data.get("robot_id", "N/A")
+            seq = data.get("seq", -1)
+            x = data.get("x", 0.0)
+            y = data.get("y", 0.0)
+            yaw = data.get("yaw", 0.0)
+            v_linear = data.get("v_linear", 0.0)
+            v_angular = data.get("v_angular", 0.0)
+
+            print(
+                f"[Received VehicleState] seq={seq}, robot_id={robot_id}, "
+                f"x={x}, y={y}, yaw={yaw}, v_linear={v_linear}, v_angular={v_angular}"
+            )
+
+            self.state_queue.put((seq, x, y, yaw))
+
+        except Exception as e:
+            print(f"Error processing VehicleState: {e}")
+
+    def send_to_hla(self, seq: int, x: float, y: float, yaw: float):
+        try:
+            self.hla.publish_vehicle_state(x, y, yaw)
+            print(f"[HLA Sent] seq={seq} | x={x}, y={y}, yaw={yaw}")
+        except Exception as e:
+            print(f"Error sending data to HLA: {e}")
+
+    def shutdown(self):
+        try:
+            self.client.loop_stop()
+            self.client.disconnect()
+        except Exception:
+            pass
+
+        try:
+            self.hla.shutdown()
+        except Exception:
+            pass
 
 
 def main():
+    print(f"[DEBUG] PRTI_HOME={PRTI_HOME}")
     mqtt_receiver = MqttReceiver(MQTT_BROKER, MQTT_PORT, MQTT_TOPIC, MQTT_CLIENT_ID)
 
-    # Start the MQTT loop
     try:
         while True:
-            time.sleep(1)
+            try:
+                seq, x, y, yaw = mqtt_receiver.state_queue.get(timeout=0.1)
+                mqtt_receiver.send_to_hla(seq, x, y, yaw)
+            except Empty:
+                pass
+
+            try:
+                mqtt_receiver.hla.rtia.evokeMultipleCallbacks(0.001, 0.01)
+            except Exception:
+                pass
+
     except KeyboardInterrupt:
         print("Exiting...")
-        mqtt_receiver.client.loop_stop()
+    finally:
+        mqtt_receiver.shutdown()
 
 
 if __name__ == "__main__":
