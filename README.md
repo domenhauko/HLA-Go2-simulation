@@ -201,6 +201,7 @@ When the full pipeline is running:
 - the orange arrow indicates heading from `yaw`.
 
 An image of the viewer will be added here later.
+<img width="645" height="562" alt="Screenshot from 2026-04-15 20-30-30" src="https://github.com/user-attachments/assets/1272048e-93b1-4aff-a63f-f9b8e7b1ff0d" />
 
 ---
 
