@@ -1,137 +1,109 @@
 # HLA-Go2-Simulation
 
-A **Gazebo + ROS 2** simulation for the [Unitree Go2](https://www.unitree.com/go2/) robot, with an MQTT gateway bridging into an HLA simulation powered by [Portico RTI](https://github.com/openlvc/portico).
+A ROS 2 + Gazebo simulation pipeline for the Unitree Go2 that publishes live robot pose over MQTT and bridges it into an HLA federation using Portico RTI.
 
 ---
 
-## 📋 Overview
+## Current project status
 
-```
-Gazebo (Go2 simulation) → Teleoperation → /odom topic
-    → MQTT Adapter → MQTT Broker → HLA Viewer
-```
+The project currently supports the following end-to-end workflow:
 
-This project establishes a stable, transport-facing pipeline where robot odometry is captured, logged to CSV, and published as JSON over MQTT — forming the foundation for a full HLA gateway integration.
+- Run the Unitree Go2 simulation in Gazebo.
+- Teleoperate the robot from the keyboard.
+- Read live odometry from ROS 2.
+- Publish `x`, `y`, and `yaw` through an MQTT adapter.
+- Receive that data in an HLA gateway.
+- Publish the pose into an HLA federation named `DemoFederation`.
+- Visualize the robot in an HLA viewer as a **blue rectangle** with an **orange heading arrow**.
+- Launch the main components through **VS Code tasks**.
+
+This repository currently contains the main Python components for the odometry adapter, MQTT/HLA bridge, and HLA viewer, including `compact_odom_adapter.py`, `hla_gateway_receiver.py`, and `hla_viewer.py`. The repo also contains the working README and progress notes on the `dev` branch. citeturn199407view0
 
 ---
 
-## ⚙️ Requirements
+## System overview
+
+```text
+Gazebo (Unitree Go2) + ROS 2 Humble
+        │
+        ├── teleop_twist_keyboard
+        │
+        └── /odom
+              │
+              ▼
+      compact_odom_adapter.py
+              │
+              ▼
+          MQTT broker
+              │
+              ▼
+      hla_gateway_receiver.py
+              │
+              ▼
+     Portico RTI / DemoFederation
+              │
+              ▼
+          hla_viewer.py
+```
+
+At the current stage, the HLA path focuses on robot pose visualization:
+
+- `x`
+- `y`
+- `yaw`
+
+The viewer uses these values to draw a simple 2D robot footprint and heading indication.
+
+---
+
+## Repository contents
+
+Important files currently in the repository include:
+
+- `compact_odom_adapter.py`
+- `go2_odom_adapter.py`
+- `go2_robot_state_adapter.py`
+- `hla_gateway_receiver.py`
+- `hla_viewer.py`
+- `mqtt_gateway_receiver.py`
+- `launch_sim.py`
+- `README_project_progress.txt`
+
+These files are visible in the current `dev` branch file tree. citeturn199407view0
+
+---
+
+## Requirements
 
 | Component | Version |
-|-----------|---------|
-| Ubuntu    | 22.04   |
-| ROS 2     | Humble  |
-| Gazebo    | 11.10.2 |
+|---|---:|
+| Ubuntu | 22.04 |
+| ROS 2 | Humble |
+| Gazebo | 11.10.2 |
+| Python | 3.10+ |
+| Portico RTI | 2.1.4 |
+| MQTT broker | Mosquitto or compatible |
 
-> **Note:** This setup is specifically built around the [anujjain-dev/unitree-go2-ros2](https://github.com/anujjain-dev/unitree-go2-ros2) repository, which only supports this exact combination of Ubuntu, ROS 2, and Gazebo.
-
-### Check your versions
-```bash
-lsb_release -a          # Ubuntu
-gazebo --version        # Gazebo
-echo $ROS_DISTRO        # ROS 2
-```
+The project is based on the Unitree Go2 Gazebo/ROS 2 setup from `anujjain-dev/unitree-go2-ros2`, and the current repository structure assumes that simulation workspace is available locally. The base repo this project depends on is referenced in the current README. fileciteturn10file0
 
 ---
 
-## 🚀 Setup
+## Current architecture notes
 
-### Terminal 1 — Launch the Go2 Simulation
+### ROS 2 / Gazebo side
 
-```bash
-source /opt/ros/humble/setup.bash
-source ~/go2_ws/install/setup.bash
+The Go2 runs in Gazebo and publishes odometry through ROS 2. Teleoperation is done with `teleop_twist_keyboard`.
 
-# Standard launch
-ros2 launch go2_config gazebo.launch.py rviz:=true
+### MQTT transport
 
-# With Velodyne lidar
-ros2 launch go2_config gazebo_velodyne.launch.py rviz:=true
-```
+A compact odometry adapter converts ROS 2 odometry into a JSON vehicle-state message and publishes it to MQTT.
 
-**Expected result:** Gazebo opens with the Go2 robot loaded.
-
----
-
-### Terminal 2 — Teleoperate the Robot
-
-```bash
-source /opt/ros/humble/setup.bash
-source ~/ros2_ws/install/setup.bash
-
-ros2 run teleop_twist_keyboard teleop_twist_keyboard
-```
-
-**Expected result:** The Go2 moves in Gazebo and `/odom` updates accordingly.
-
----
-
-### Terminal 3 — Monitor MQTT Messages
-
-```bash
-mosquitto_sub -h 127.0.0.1 -t go2/vehicle_state
-```
-
-**Expected result:** Terminal waits silently until the adapter starts publishing.
-
----
-
-### Terminal 4 — Run the Compact ODOM Adapter
-
-```bash
-cd /path/to/your/project
-source /opt/ros/humble/setup.bash
-source ~/ros2_ws/install/setup.bash
-
-python3 compact_odom_adapter.py --ros-args \
-  -p robot_id:=go2_001 \
-  -p publish_rate_hz:=20.0 \
-  -p csv_filename:=logs/go2_vehicle_state.csv \
-  -p mqtt_broker:=127.0.0.1 \
-  -p mqtt_port:=1883 \
-  -p mqtt_topic:=go2/vehicle_state
-```
-
-**Parameters:**
-
-| Parameter          | Description                                      |
-|--------------------|--------------------------------------------------|
-| `robot_id`         | Logical identifier for the robot                 |
-| `publish_rate_hz`  | Fixed-rate publication/logging frequency (Hz)    |
-| `csv_filename`     | Output CSV file path                             |
-| `mqtt_broker`      | MQTT broker IP or hostname                       |
-| `mqtt_port`        | MQTT broker port                                 |
-| `mqtt_topic`       | Topic used for publishing JSON `VehicleState`    |
-
----
-
-## ✅ Expected Outputs
-
-### Adapter (Terminal 4)
-
-On startup:
-```
-CompactOdomAdapter started | odom_topic=/odom | robot_id=go2_001 | publish_rate_hz=20.0 | csv_enabled=True | mqtt_enabled=True
-MQTT connected to 127.0.0.1:1883, publishing to go2/vehicle_state
-```
-
-While running:
-```
-[VehicleState seq=1] id=go2_001 | dt=50.00 ms | x=0.012 y=0.001 | yaw=0.005 rad (0.3 deg) | v=0.250 m/s w=0.020 rad/s
-```
-
-- `seq` increments by 1 each cycle
-- `dt` stays close to the configured publish period
-- `x`, `y`, `yaw`, `v`, `w` change with robot motion
-
-### MQTT Subscriber (Terminal 3)
+Typical fields include:
 
 ```json
 {
   "robot_id": "go2_001",
   "seq": 42,
-  "timestamp_ns": 1712345678901234567,
-  "publish_time_ns": 1712345678910000000,
   "x": 1.234,
   "y": -0.456,
   "yaw": 0.785,
@@ -140,83 +112,181 @@ While running:
 }
 ```
 
-### CSV Log (`logs/go2_vehicle_state.csv`)
+### HLA side
 
-```
-seq,robot_id,timestamp_ns,publish_time_ns,publish_dt_ms,x,y,yaw_rad,yaw_deg,v_linear,v_angular
-```
+`hla_gateway_receiver.py` receives the MQTT stream and publishes the pose into Portico RTI.
 
-- `seq` increases monotonically
-- `publish_dt_ms` stays close to the configured publish period
-- `yaw_rad` and `yaw_deg` are consistent with each other
-- All values reflect live teleoperation input
+`hla_viewer.py` joins the same federation and renders the robot pose as:
+
+- a blue rectangle for the robot body,
+- an orange arrow for heading.
 
 ---
 
-## 🔧 Troubleshooting
+## How to run the current pipeline
 
-<details>
-<summary><strong>MQTT connection refused</strong></summary>
+The project is currently started through **VS Code tasks**.
 
+Recommended startup order:
+
+1. Start the Gazebo simulation.
+2. Start teleoperation.
+3. Start the MQTT adapter.
+4. Start the HLA gateway.
+5. Start the HLA viewer.
+
+### 1. Gazebo simulation
+
+Expected VS Code task behavior:
+
+```bash
+source /opt/ros/humble/setup.bash
+source ~/go2_ws/install/setup.bash
+ros2 launch go2_config gazebo.launch.py rviz:=true
 ```
-Error: Connection refused
+
+### 2. Teleoperation
+
+```bash
+source /opt/ros/humble/setup.bash
+source ~/go2_ws/install/setup.bash
+ros2 run teleop_twist_keyboard teleop_twist_keyboard
 ```
 
-The local MQTT broker is not running. Start it with:
+### 3. MQTT adapter
+
+The current project includes odometry adapter scripts such as `compact_odom_adapter.py` and `go2_odom_adapter.py`. The active adapter should publish robot pose to the configured MQTT topic.
+
+Example pattern:
+
+```bash
+python3 compact_odom_adapter.py --ros-args \
+  -p robot_id:=go2_001 \
+  -p publish_rate_hz:=20.0 \
+  -p mqtt_broker:=127.0.0.1 \
+  -p mqtt_port:=1883 \
+  -p mqtt_topic:=go2/vehicle_state
+```
+
+### 4. HLA gateway
+
+The HLA gateway is started with Portico environment variables set:
+
+```bash
+export RTI_HOME="/home/domen/Documents/LAK/portico-2.1.4"
+export RTI_RID_FILE="/home/domen/Documents/LAK/Moja verzija/HLA-Go2-simulation/RTI.rid"
+python3 "/home/domen/Documents/LAK/Moja verzija/HLA-Go2-simulation/hla_gateway_receiver.py"
+```
+
+### 5. HLA viewer
+
+```bash
+export RTI_HOME="/home/domen/Documents/LAK/portico-2.1.4"
+export RTI_RID_FILE="/home/domen/Documents/LAK/Moja verzija/HLA-Go2-simulation/RTI.rid"
+python3 "/home/domen/Documents/LAK/Moja verzija/HLA-Go2-simulation/hla_viewer.py"
+```
+
+---
+
+## Current expected behavior
+
+When the full pipeline is running:
+
+- the Go2 moves in Gazebo,
+- ROS 2 odometry updates continuously,
+- the MQTT adapter publishes pose messages,
+- the HLA gateway receives and republishes pose into the federation,
+- the HLA viewer opens a matplotlib window,
+- the robot is shown as a blue rectangle,
+- the orange arrow indicates heading from `yaw`.
+
+An image of the viewer will be added here later.
+
+---
+
+## Portico / HLA configuration
+
+The project currently uses:
+
+- **Portico RTI 2.1.4**
+- **DemoFederation**
+- a local `VehicleFOM.xml`
+- a local `RTI.rid` file for Portico transport configuration
+
+Both the gateway and viewer must use:
+
+- the same `RTI_HOME`,
+- the same `RTI_RID_FILE`,
+- the same federation name,
+- the same FOM.
+
+---
+
+## Known limitations of the current stage
+
+This is the current working milestone, not the final architecture.
+
+Current scope:
+
+- Pose-only HLA visualization (`x`, `y`, `yaw`)
+- Simple 2D viewer representation
+- Local development workflow through VS Code tasks
+
+Not yet documented here as fully complete:
+
+- richer robot state in HLA,
+- sensor federation,
+- higher-level command/interaction classes,
+- polished deployment scripts,
+- screenshots and diagrams in the README.
+
+---
+
+## Troubleshooting
+
+### `ros2 launch` or `ros2 run` command missing
+
+A ROS 2 CLI package may be missing. Reinstall the required Humble packages, for example:
+
+```bash
+sudo apt update
+sudo apt install ros-humble-ros2launch ros-humble-ros2run
+```
+
+### `robot_state_publisher` not found
+
+Reinstall the package:
+
+```bash
+sudo apt install ros-humble-robot-state-publisher
+```
+
+### MQTT broker not running
 
 ```bash
 sudo systemctl start mosquitto
 ```
 
-Then retry `mosquitto_sub`.
+### Portico not found
 
-</details>
+Make sure `RTI_HOME` points to the Linux Portico install containing `lib/portico.jar`.
 
-<details>
-<summary><strong>Adapter prints "No /odom received yet"</strong></summary>
+### Gateway and viewer do not see each other
 
-The simulation is not running, or the topic name differs. Check available topics:
+Make sure both use the same:
 
-```bash
-ros2 topic list
-ros2 topic echo /odom
-```
+- `RTI_HOME`
+- `RTI_RID_FILE`
+- `VehicleFOM.xml`
+- federation name
 
-If the odom topic has a different name, pass it explicitly:
-
-```bash
-python3 compact_odom_adapter.py --ros-args \
-  -p odom_topic:=/your_actual_odom_topic
-```
-
-</details>
-
-<details>
-<summary><strong>CSV is created but MQTT subscriber receives nothing</strong></summary>
-
-Check the adapter terminal for this line:
-```
-MQTT connected to 127.0.0.1:1883, publishing to go2/vehicle_state
-```
-
-If missing, verify the broker IP, topic name, and that the broker is running.
-
-</details>
-
-<details>
-<summary><strong>Robot moves in Gazebo but adapter values don't change</strong></summary>
-
-You may be subscribed to the wrong odometry topic. Confirm `/odom` is the active stream:
-
-```bash
-ros2 topic echo /odom
-```
-
-</details>
+If Portico/JGroups still fails to connect over multicast, also verify the Linux multicast route and interface configuration.
 
 ---
 
-## 📚 Resources
+## Resources
 
-- [anujjain-dev/unitree-go2-ros2](https://github.com/anujjain-dev/unitree-go2-ros2) — base simulation repository
-- [openlvc/portico](https://github.com/openlvc/portico) — Portico RTI (HLA implementation)
+- Unitree Go2 product page: Unitree Go2. citeturn199407view0
+- Base simulation dependency: `anujjain-dev/unitree-go2-ros2`. fileciteturn10file0
+- Portico RTI: OpenLVC Portico. citeturn199407view0
+- This repository (`dev` branch): `domenhauko/HLA-Go2-simulation`. citeturn199407view0
