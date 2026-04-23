@@ -1,6 +1,6 @@
 # HLA-Go2-Simulation
 
-A ROS 2 + Gazebo simulation pipeline for the Unitree Go2 that publishes live robot pose over MQTT and bridges it into an HLA federation using Portico RTI.
+A ROS 2 + Gazebo simulation pipeline for the Unitree Go2 that captures live robot state from `/odom`, logs it to CSV, publishes a compact vehicle-state message over MQTT, and bridges the pose into an HLA federation using Portico RTI.
 
 ---
 
@@ -11,13 +11,16 @@ The project currently supports the following end-to-end workflow:
 - Run the Unitree Go2 simulation in Gazebo.
 - Teleoperate the robot from the keyboard.
 - Read live odometry from ROS 2.
-- Publish `x`, `y`, and `yaw` through an MQTT adapter.
+- Convert odometry into a detailed `RobotState` structure.
+- Log robot-state timing and motion data to CSV files.
+- Convert the robot state into a compact `VehicleState` message.
+- Publish `x`, `y`, `yaw`, `v_linear`, and `v_angular` through MQTT.
 - Receive that data in an HLA gateway.
 - Publish the pose into an HLA federation named `DemoFederation`.
-- Visualize the robot in an HLA viewer as a **blue rectangle** with an **orange heading arrow**.
-- Launch the main components through **VS Code tasks**.
+- Visualize the robot in an HLA viewer as a blue rectangle with an orange heading indicator.
+- Launch the main components through VS Code tasks or run the Python scripts directly.
 
-This repository currently contains the main Python components for the odometry adapter, MQTT/HLA bridge, and HLA viewer, including `compact_odom_adapter.py`, `hla_gateway_receiver.py`, and `hla_viewer.py`. The repo also contains the working README and progress notes on the `dev` branch. citeturn199407view0
+This repository currently contains the working Python components for the ROS 2 state adapter, the MQTT/HLA bridge, and the HLA viewer, together with the HLA FOM and RTI configuration files used by the current `dev` branch.
 
 ---
 
@@ -31,28 +34,29 @@ Gazebo (Unitree Go2) + ROS 2 Humble
         └── /odom
               │
               ▼
-      compact_odom_adapter.py
+      go2_robot_state_adapter.py
               │
-              ▼
-          MQTT broker
+              ├── CSV log file
               │
-              ▼
-      hla_gateway_receiver.py
-              │
-              ▼
-     Portico RTI / DemoFederation
-              │
-              ▼
-          hla_viewer.py
+              └── MQTT: go2/vehicle_state
+                      │
+                      ▼
+              hla_gateway_receiver.py
+                      │
+                      ▼
+             Portico RTI / DemoFederation
+                      │
+                      ▼
+                  hla_viewer.py
 ```
 
-At the current stage, the HLA path focuses on robot pose visualization:
+At the current stage, the HLA path focuses on robot pose visualization using the following attributes:
 
 - `x`
 - `y`
 - `yaw`
 
-The viewer uses these values to draw a simple 2D robot footprint and heading indication.
+The viewer subscribes to the HLA object updates and renders a simple 2D robot footprint and heading indicator.
 
 ---
 
@@ -60,31 +64,30 @@ The viewer uses these values to draw a simple 2D robot footprint and heading ind
 
 Important files currently in the repository include:
 
-- `compact_odom_adapter.py`
-- `go2_odom_adapter.py`
-- `go2_robot_state_adapter.py`
-- `hla_gateway_receiver.py`
-- `hla_viewer.py`
-- `mqtt_gateway_receiver.py`
-- `launch_sim.py`
-- `README_project_progress.txt`
-
-These files are visible in the current `dev` branch file tree. citeturn199407view0
+- `go2_robot_state_adapter.py` - ROS 2 node that subscribes to `/odom`, builds full robot-state data, writes CSV logs, and publishes compact vehicle-state messages to MQTT.
+- `hla_gateway_receiver.py` - MQTT receiver that joins the HLA federation, registers a `Vehicle` object, and republishes `x`, `y`, and `yaw` into HLA.
+- `hla_viewer.py` - HLA subscriber and live 2D viewer built with Matplotlib.
+- `VehicleFOM.xml` - Federation Object Model defining the `Vehicle` object and its attributes.
+- `RTI.rid` - Portico RTI configuration file.
+- `.vscode/` - VS Code workspace settings and task definitions used to launch the current pipeline.
+- `archive/` - older or experimental project files kept for reference.
 
 ---
 
 ## Requirements
 
-| Component | Version |
-|---|---:|
+| Component | Version / Notes |
+|---|---|
 | Ubuntu | 22.04 |
 | ROS 2 | Humble |
-| Gazebo | 11.10.2 |
+| Gazebo | 11.x |
 | Python | 3.10+ |
+| Java | OpenJDK 11 |
 | Portico RTI | 2.1.4 |
 | MQTT broker | Mosquitto or compatible |
+|
 
-The project is based on the Unitree Go2 Gazebo/ROS 2 setup from `anujjain-dev/unitree-go2-ros2`, and the current repository structure assumes that simulation workspace is available locally. The base repo this project depends on is referenced in the current README. fileciteturn10file0
+The project assumes that a working Unitree Go2 ROS 2/Gazebo simulation workspace is already available locally. This repository contains the integration layer that extracts robot state from ROS 2 and bridges it into MQTT and HLA.
 
 ---
 
@@ -94,16 +97,45 @@ The project is based on the Unitree Go2 Gazebo/ROS 2 setup from `anujjain-dev/un
 
 The Go2 runs in Gazebo and publishes odometry through ROS 2. Teleoperation is done with `teleop_twist_keyboard`.
 
+`go2_robot_state_adapter.py` subscribes to `/odom` using the ROS 2 sensor-data QoS profile and builds a detailed `RobotState` record containing:
+
+- sequence number
+- source timestamp
+- adapter receive/publish timestamps
+- position (`x`, `y`, `z`)
+- orientation quaternion (`qx`, `qy`, `qz`, `qw`)
+- planar yaw
+- linear velocity components
+- angular velocity components
+- frame information
+
+### CSV logging
+
+The adapter can write timestamped CSV files to a `logs/` directory. These logs are useful for checking publish timing, latency, and vehicle motion during simulation runs.
+
+Typical CSV fields include:
+
+```text
+seq, robot_id, source_timestamp_ns, adapter_receive_time_ns,
+adapter_publish_time_ns, adapter_publish_monotonic_ns,
+source_to_receive_ms, receive_to_publish_ms, publish_period_ms,
+x, y, z, yaw_rad,
+v_linear_x, v_linear_y, v_linear_z,
+v_angular_x, v_angular_y, v_angular_z
+```
+
 ### MQTT transport
 
-A compact odometry adapter converts ROS 2 odometry into a JSON vehicle-state message and publishes it to MQTT.
+The adapter converts the full robot state into a compact `VehicleState` message and publishes it to MQTT topic `go2/vehicle_state`.
 
-Typical fields include:
+Typical payload:
 
 ```json
 {
-  "robot_id": "go2_001",
+  "robot_id": "go2",
   "seq": 42,
+  "timestamp_ns": 1710000000000000000,
+  "publish_time_ns": 1710000000100000000,
   "x": 1.234,
   "y": -0.456,
   "yaw": 0.785,
@@ -114,30 +146,35 @@ Typical fields include:
 
 ### HLA side
 
-`hla_gateway_receiver.py` receives the MQTT stream and publishes the pose into Portico RTI.
+`hla_gateway_receiver.py` receives the MQTT stream, joins `DemoFederation`, publishes the `HLAobjectRoot.Vehicle` object class, and updates the following attributes:
 
-`hla_viewer.py` joins the same federation and renders the robot pose as:
+- `x`
+- `y`
+- `yaw`
 
-- a blue rectangle for the robot body,
-- an orange arrow for heading.
+`hla_viewer.py` joins the same federation, subscribes to those attributes, and renders the robot pose in a live Matplotlib window as:
+
+- a blue rectangle for the robot body
+- an orange heading line for orientation
 
 ---
 
 ## How to run the current pipeline
 
-The project is currently started through **VS Code tasks**.
+The project can be started through VS Code tasks or by running the scripts manually.
 
 Recommended startup order:
 
 1. Start the Gazebo simulation.
 2. Start teleoperation.
-3. Start the MQTT adapter.
-4. Start the HLA gateway.
-5. Start the HLA viewer.
+3. Start the MQTT broker.
+4. Start the Go2 robot-state adapter.
+5. Start the HLA gateway.
+6. Start the HLA viewer.
 
 ### 1. Gazebo simulation
 
-Expected VS Code task behavior:
+Example:
 
 ```bash
 source /opt/ros/humble/setup.bash
@@ -153,140 +190,83 @@ source ~/go2_ws/install/setup.bash
 ros2 run teleop_twist_keyboard teleop_twist_keyboard
 ```
 
-### 3. MQTT adapter
+### 3. MQTT broker
 
-The current project includes odometry adapter scripts such as `compact_odom_adapter.py` and `go2_odom_adapter.py`. The active adapter should publish robot pose to the configured MQTT topic.
-
-Example pattern:
+Example using Mosquitto:
 
 ```bash
-python3 compact_odom_adapter.py --ros-args \
-  -p robot_id:=go2_001 \
+mosquitto
+```
+
+### 4. Go2 robot-state adapter
+
+```bash
+source /opt/ros/humble/setup.bash
+source ~/go2_ws/install/setup.bash
+python3 go2_robot_state_adapter.py --ros-args \
+  -p odom_topic:=/odom \
+  -p robot_id:=go2 \
   -p publish_rate_hz:=20.0 \
+  -p mqtt_enabled:=true \
   -p mqtt_broker:=127.0.0.1 \
   -p mqtt_port:=1883 \
-  -p mqtt_topic:=go2/vehicle_state
+  -p mqtt_topic:=go2/vehicle_state \
+  -p csv_enabled:=true
 ```
 
-### 4. HLA gateway
-
-The HLA gateway is started with Portico environment variables set:
+### 5. HLA gateway
 
 ```bash
-export RTI_HOME="/home/domen/Documents/LAK/portico-2.1.4"
-export RTI_RID_FILE="/home/domen/Documents/LAK/Moja verzija/HLA-Go2-simulation/RTI.rid"
-python3 "/home/domen/Documents/LAK/Moja verzija/HLA-Go2-simulation/hla_gateway_receiver.py"
+export RTI_HOME="/path/to/portico-2.1.4"
+export RTI_RID_FILE="$(pwd)/RTI.rid"
+python3 hla_gateway_receiver.py
 ```
 
-### 5. HLA viewer
+### 6. HLA viewer
 
 ```bash
-export RTI_HOME="/home/domen/Documents/LAK/portico-2.1.4"
-export RTI_RID_FILE="/home/domen/Documents/LAK/Moja verzija/HLA-Go2-simulation/RTI.rid"
-python3 "/home/domen/Documents/LAK/Moja verzija/HLA-Go2-simulation/hla_viewer.py"
+export RTI_HOME="/path/to/portico-2.1.4"
+export RTI_RID_FILE="$(pwd)/RTI.rid"
+python3 hla_viewer.py
 ```
 
 ---
 
-## Current expected behavior
+## Current outputs
 
-When the full pipeline is running:
+At the current stage, the project produces three useful outputs:
 
-- the Go2 moves in Gazebo,
-- ROS 2 odometry updates continuously,
-- the MQTT adapter publishes pose messages,
-- the HLA gateway receives and republishes pose into the federation,
-- the HLA viewer opens a matplotlib window,
-- the robot is shown as a blue rectangle,
-- the orange arrow indicates heading from `yaw`.
-
-<img width="645" height="562" alt="Screenshot from 2026-04-15 20-30-30" src="https://github.com/user-attachments/assets/1272048e-93b1-4aff-a63f-f9b8e7b1ff0d" />
+1. **ROS 2 console output** from the adapter showing the latest compact vehicle state.
+2. **CSV log files** containing timing and motion data for each publish cycle.
+3. **A live HLA viewer window** showing the simulated robot pose in 2D.
 
 ---
 
-## Portico / HLA configuration
+## Current limitations
 
-The project currently uses:
+The current `dev` branch is focused on validating the simulation-to-HLA data path, not on a full multi-entity federation model.
 
-- **Portico RTI 2.1.4**
-- **DemoFederation**
-- a local `VehicleFOM.xml`
-- a local `RTI.rid` file for Portico transport configuration
+Current limitations include:
 
-Both the gateway and viewer must use:
-
-- the same `RTI_HOME`,
-- the same `RTI_RID_FILE`,
-- the same federation name,
-- the same FOM.
+- HLA publication is currently limited to `x`, `y`, and `yaw`.
+- The viewer is a simple 2D visualization intended for debugging and demonstration.
+- The repository expects an external Go2 ROS 2/Gazebo simulation workspace to already be installed.
+- Portico and Java paths still need to be configured correctly on the local machine.
 
 ---
 
-## Known limitations of the current stage
+## Next development direction
 
-This is the current working milestone, not the final architecture.
+The natural next steps for this project are:
 
-Current scope:
-
-- Pose-only HLA visualization (`x`, `y`, `yaw`)
-- Simple 2D viewer representation
-- Local development workflow through VS Code tasks
-
-Not yet documented here as fully complete:
-
-- richer robot state in HLA,
-- sensor federation,
-- higher-level command/interaction classes,
-- polished deployment scripts,
-- screenshots and diagrams in the README.
+- expand the HLA data model beyond pose-only attributes
+- publish richer robot state into the federation
+- improve launch automation and packaging
+- refine the viewer or connect the HLA stream to a more advanced external visualization client
+- support multiple vehicles or federates in the same federation
 
 ---
 
-## Troubleshooting
+## License
 
-### `ros2 launch` or `ros2 run` command missing
-
-A ROS 2 CLI package may be missing. Reinstall the required Humble packages, for example:
-
-```bash
-sudo apt update
-sudo apt install ros-humble-ros2launch ros-humble-ros2run
-```
-
-### `robot_state_publisher` not found
-
-Reinstall the package:
-
-```bash
-sudo apt install ros-humble-robot-state-publisher
-```
-
-### MQTT broker not running
-
-```bash
-sudo systemctl start mosquitto
-```
-
-### Portico not found
-
-Make sure `RTI_HOME` points to the Linux Portico install containing `lib/portico.jar`.
-
-### Gateway and viewer do not see each other
-
-Make sure both use the same:
-
-- `RTI_HOME`
-- `RTI_RID_FILE`
-- `VehicleFOM.xml`
-- federation name
-
-If Portico/JGroups still fails to connect over multicast, also verify the Linux multicast route and interface configuration.
-
----
-
-## Resources
-
-- Unitree Go2 product page: Unitree Go2. citeturn199407view0
-- Base simulation dependency: `anujjain-dev/unitree-go2-ros2`. fileciteturn10file0
-- Portico RTI: OpenLVC Portico. citeturn199407view0
-- This repository (`dev` branch): `domenhauko/HLA-Go2-simulation`. citeturn199407view0
+This project is licensed under the MIT License.
