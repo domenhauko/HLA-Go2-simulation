@@ -29,10 +29,10 @@ def quat_to_yaw(x: float, y: float, z: float, w: float) -> float:
 def make_timestamped_csv_path(directory: str = "logs") -> str:
     """
     Create a timestamped CSV filename in the format:
-    go2_vehicle_state_YY_MM_DD_HH_mm.csv
+    go2_robot_state_YY_MM_DD_HH_mm.csv
     """
     timestamp = datetime.now().strftime("%y_%m_%d_%H_%M")
-    return str(Path(directory) / f"go2_vehicle_state_{timestamp}.csv")
+    return str(Path(directory) / f"go2_robot_state_{timestamp}.csv")
 
 
 @dataclass
@@ -41,7 +41,9 @@ class RobotState:
     seq: int
 
     source_timestamp_ns: int
-    publish_time_ns: int
+    adapter_receive_time_ns: int
+    adapter_publish_time_ns: int
+    adapter_publish_monotonic_ns: int
 
     x: float
     y: float
@@ -97,6 +99,7 @@ class Go2RobotStateAdapter(Node):
 
         self.declare_parameter("csv_enabled", True)
         self.declare_parameter("csv_directory", "logs")
+        self.declare_parameter("csv_filename", "")
 
         self.declare_parameter("mqtt_enabled", True)
         self.declare_parameter("mqtt_broker", "127.0.0.1")
@@ -115,7 +118,13 @@ class Go2RobotStateAdapter(Node):
 
         self.csv_enabled = bool(self.get_parameter("csv_enabled").value)
         self.csv_directory = str(self.get_parameter("csv_directory").value)
-        self.csv_filename = make_timestamped_csv_path(self.csv_directory)
+        base_dir = Path(__file__).resolve().parent
+        csv_filename_param = str(self.get_parameter("csv_filename").value)
+
+        if csv_filename_param:
+            self.csv_filename = str((base_dir / csv_filename_param).resolve())
+        else:
+            self.csv_filename = str((base_dir / make_timestamped_csv_path(self.csv_directory)).resolve())
 
         self.mqtt_enabled = bool(self.get_parameter("mqtt_enabled").value)
         self.mqtt_broker = str(self.get_parameter("mqtt_broker").value)
@@ -130,6 +139,7 @@ class Go2RobotStateAdapter(Node):
 
         self._lock = threading.Lock()
         self.latest_odom: Optional[Odometry] = None
+        self.latest_odom_receive_time_ns: Optional[int] = None
         self.seq: int = 0
         self.last_publish_time_ns: Optional[int] = None
 
@@ -171,15 +181,23 @@ class Go2RobotStateAdapter(Node):
             [
                 "seq",
                 "robot_id",
-                "timestamp_ns",
-                "publish_time_ns",
-                "publish_dt_ms",
+                "source_timestamp_ns",
+                "adapter_receive_time_ns",
+                "adapter_publish_time_ns",
+                "adapter_publish_monotonic_ns",
+                "source_to_receive_ms",
+                "receive_to_publish_ms",
+                "publish_period_ms",
                 "x",
                 "y",
+                "z",
                 "yaw_rad",
-                "yaw_deg",
-                "v_linear",
-                "v_angular",
+                "v_linear_x",
+                "v_linear_y",
+                "v_linear_z",
+                "v_angular_x",
+                "v_angular_y",
+                "v_angular_z",
             ]
         )
         self.csv_file.flush()
@@ -222,23 +240,28 @@ class Go2RobotStateAdapter(Node):
         self.get_logger().warn(f"MQTT disconnected, reason_code={reason_code}")
 
     def odom_callback(self, msg: Odometry) -> None:
+        receive_time_ns = time.time_ns()
         with self._lock:
             self.latest_odom = msg
+            self.latest_odom_receive_time_ns = receive_time_ns
 
-    def build_robot_state(self, msg: Odometry) -> RobotState:
+    def build_robot_state(self, msg: Odometry, receive_time_ns: int) -> RobotState:
         pos = msg.pose.pose.position
         ori = msg.pose.pose.orientation
         twist = msg.twist.twist
 
         source_timestamp_ns = int(msg.header.stamp.sec * 1e9 + msg.header.stamp.nanosec)
-        publish_time_ns = time.time_ns()
+        adapter_publish_time_ns = time.time_ns()
+        adapter_publish_monotonic_ns = time.monotonic_ns()
         yaw = quat_to_yaw(ori.x, ori.y, ori.z, ori.w)
 
         return RobotState(
             robot_id=self.robot_id,
             seq=self.seq,
             source_timestamp_ns=source_timestamp_ns,
-            publish_time_ns=publish_time_ns,
+            adapter_receive_time_ns=receive_time_ns,
+            adapter_publish_time_ns=adapter_publish_time_ns,
+            adapter_publish_monotonic_ns=adapter_publish_monotonic_ns,
             x=float(pos.x),
             y=float(pos.y),
             z=float(pos.z),
@@ -262,35 +285,38 @@ class Go2RobotStateAdapter(Node):
             robot_id=robot_state.robot_id,
             seq=robot_state.seq,
             timestamp_ns=robot_state.source_timestamp_ns,
-            publish_time_ns=robot_state.publish_time_ns,
+            publish_time_ns=robot_state.adapter_publish_time_ns,
             x=robot_state.x,
             y=robot_state.y,
             yaw=robot_state.yaw,
             v_linear=robot_state.v_linear_x,
             v_angular=robot_state.v_angular_z,
         )
-
+    
     def timer_callback(self) -> None:
         with self._lock:
             msg = self.latest_odom
+            receive_time_ns = self.latest_odom_receive_time_ns
 
-        if msg is None:
+        if msg is None or receive_time_ns is None:
             self.get_logger().warn("No /odom received yet")
             return
 
-        robot_state = self.build_robot_state(msg)
+        robot_state = self.build_robot_state(msg, receive_time_ns)
         vehicle_state = self.robot_to_vehicle_state(robot_state)
 
-        publish_dt_ms: Optional[float] = None
+        publish_period_ms: Optional[float] = None
         if self.last_publish_time_ns is not None:
-            publish_dt_ms = (vehicle_state.publish_time_ns - self.last_publish_time_ns) / 1e6
+            publish_period_ms = (
+                vehicle_state.publish_time_ns - self.last_publish_time_ns
+            ) / 1e6
         self.last_publish_time_ns = vehicle_state.publish_time_ns
 
         if self.print_robot_state:
             self.get_logger().info(f"RobotState: {robot_state.to_dict()}")
 
         if self.print_vehicle_state:
-            dt_text = "n/a" if publish_dt_ms is None else f"{publish_dt_ms:.2f} ms"
+            dt_text = "n/a" if publish_period_ms is None else f"{publish_period_ms:.2f} ms"
             self.get_logger().info(
                 f"[VehicleState seq={vehicle_state.seq}] "
                 f"id={vehicle_state.robot_id} | dt={dt_text} | "
@@ -301,30 +327,45 @@ class Go2RobotStateAdapter(Node):
             )
 
         if self.csv_enabled:
-            self._write_csv(vehicle_state, publish_dt_ms)
+            self._write_csv(robot_state, publish_period_ms)
 
         if self.mqtt_enabled and self.mqtt_client is not None:
             self._publish_mqtt(vehicle_state)
 
         self.seq += 1
 
-    def _write_csv(self, vehicle_state: VehicleState, publish_dt_ms: Optional[float]) -> None:
+    def _write_csv(self, robot_state: RobotState, publish_period_ms: Optional[float]) -> None:
         if self.csv_writer is None or self.csv_file is None:
             return
 
+        source_to_receive_ms = (
+            (robot_state.adapter_receive_time_ns - robot_state.source_timestamp_ns) / 1e6
+        )
+        receive_to_publish_ms = (
+            (robot_state.adapter_publish_time_ns - robot_state.adapter_receive_time_ns) / 1e6
+        )
+
         self.csv_writer.writerow(
             [
-                vehicle_state.seq,
-                vehicle_state.robot_id,
-                vehicle_state.timestamp_ns,
-                vehicle_state.publish_time_ns,
-                "" if publish_dt_ms is None else f"{publish_dt_ms:.3f}",
-                f"{vehicle_state.x:.6f}",
-                f"{vehicle_state.y:.6f}",
-                f"{vehicle_state.yaw:.6f}",
-                f"{math.degrees(vehicle_state.yaw):.6f}",
-                f"{vehicle_state.v_linear:.6f}",
-                f"{vehicle_state.v_angular:.6f}",
+                robot_state.seq,
+                robot_state.robot_id,
+                robot_state.source_timestamp_ns,
+                robot_state.adapter_receive_time_ns,
+                robot_state.adapter_publish_time_ns,
+                robot_state.adapter_publish_monotonic_ns,
+                f"{source_to_receive_ms:.3f}",
+                f"{receive_to_publish_ms:.3f}",
+                "" if publish_period_ms is None else f"{publish_period_ms:.3f}",
+                f"{robot_state.x:.6f}",
+                f"{robot_state.y:.6f}",
+                f"{robot_state.z:.6f}",
+                f"{robot_state.yaw:.6f}",
+                f"{robot_state.v_linear_x:.6f}",
+                f"{robot_state.v_linear_y:.6f}",
+                f"{robot_state.v_linear_z:.6f}",
+                f"{robot_state.v_angular_x:.6f}",
+                f"{robot_state.v_angular_y:.6f}",
+                f"{robot_state.v_angular_z:.6f}",
             ]
         )
         self.csv_file.flush()

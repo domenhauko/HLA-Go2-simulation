@@ -6,4 +6,4 @@ portico.jgroups.udp.address = 228.10.10.10
 portico.jgroups.udp.port = 20913
 
 # Important: bind to your real NIC, not loopback
-portico.jgroups.udp.bindAddress = 192.168.0.100
+portico.jgroups.udp.bindAddress = 127.0.0.1
