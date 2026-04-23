@@ -78,28 +78,9 @@
       }
     },
     {
-      "label": "MQTT Receiver",
-      "type": "shell",
-      "command": "echo 'Starting MQTT Receiver...'; python3 \"${workspaceFolder}/mqtt_gateway_receiver.py\"",
-      "group": "build",
-      "problemMatcher": [],
-      "options": {
-        "shell": {
-          "executable": "/bin/bash",
-          "args": ["-c"]
-        }
-      },
-      "presentation": {
-        "panel": "dedicated",
-        "group": "mqtt",
-        "reveal": "silent",
-        "showReuseMessage": false
-      }
-    },
-    {
       "label": "HLA gateway",
       "type": "shell",
-      "command": "echo 'Starting HLA gateway...'; export RTI_HOME=\"${workspaceFolder}/../../portico-2.1.4\" && export RTI_RID_FILE=\"${workspaceFolder}/RTI.rid\" && export _JAVA_OPTIONS=\"-Djava.net.preferIPv4Stack=true\" && python3 \"${workspaceFolder}/hla_gateway_receiver.py\"",
+      "command": "echo 'Starting HLA gateway...'; export RTI_HOME=\"${RTI_HOME:-${workspaceFolder}/../../portico-2.1.4}\" && export RTI_RID_FILE=\"${workspaceFolder}/RTI.rid\" && export _JAVA_OPTIONS=\"-Djava.net.preferIPv4Stack=true\" && python3 \"${workspaceFolder}/hla_gateway_receiver.py\"",
       "group": "build",
       "problemMatcher": [],
       "options": {
@@ -118,7 +99,7 @@
     {
       "label": "HLA viewer",
       "type": "shell",
-      "command": "echo 'Starting HLA gateway...'; export RTI_HOME=\"${workspaceFolder}/../../portico-2.1.4\" && export RTI_RID_FILE=\"${workspaceFolder}/RTI.rid\" && export _JAVA_OPTIONS=\"-Djava.net.preferIPv4Stack=true\" && python3 \"${workspaceFolder}/hla_viewer.py\"",
+      "command": "echo 'Starting HLA viewer...'; export RTI_HOME=\"${RTI_HOME:-${workspaceFolder}/../../portico-2.1.4}\" && export RTI_RID_FILE=\"${workspaceFolder}/RTI.rid\" && export _JAVA_OPTIONS=\"-Djava.net.preferIPv4Stack=true\" && python3 \"${workspaceFolder}/hla_viewer.py\"",
       "group": "build",
       "problemMatcher": [],
       "options": {
