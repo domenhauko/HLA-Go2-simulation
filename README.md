@@ -167,7 +167,7 @@ Recommended startup order:
 
 1. Start the Gazebo simulation.
 2. Start teleoperation.
-3. Start the MQTT broker.
+3. Start the MQTT server.
 4. Start the Go2 robot-state adapter.
 5. Start the HLA gateway.
 6. Start the HLA viewer.
@@ -195,7 +195,7 @@ ros2 run teleop_twist_keyboard teleop_twist_keyboard
 Example using Mosquitto:
 
 ```bash
-mosquitto
+sudo systemctl start mosquitto
 ```
 
 ### 4. Go2 robot-state adapter
