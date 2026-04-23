@@ -1,0 +1,9 @@
+portico.loglevel = INFO
+portico.jgroups.loglevel = DEBUG
+
+# Keep the default multicast group/port explicit so both processes use the same values
+portico.jgroups.udp.address = 228.10.10.10
+portico.jgroups.udp.port = 20913
+
+# Important: bind to your real NIC, not loopback
+portico.jgroups.udp.bindAddress = 192.168.0.100

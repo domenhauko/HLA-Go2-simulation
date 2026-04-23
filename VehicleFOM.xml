@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<objectModel
+    xmlns="http://standards.ieee.org/IEEE1516-2010"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://standards.ieee.org/IEEE1516-2010 IEEE1516-2010.xsd">
+
+  <modelIdentification>
+    <name>Go2 Vehicle FOM</name>
+    <type>FOM</type>
+    <version>1.0</version>
+    <modificationDate>2026-04-15</modificationDate>
+    <purpose>Minimal HLA FOM for Unitree Go2 pose exchange</purpose>
+    <applicationDomain>Robotics</applicationDomain>
+    <description>Minimal federation object model for Go2 viewer and gateway</description>
+  </modelIdentification>
+
+  <objects>
+    <objectClass>
+      <name>HLAobjectRoot</name>
+      <objectClass>
+        <name>Vehicle</name>
+        <sharing>PublishSubscribe</sharing>
+
+        <attribute>
+          <name>x</name>
+          <dataType>HLAfloat64BE</dataType>
+          <updateType>Conditional</updateType>
+          <ownership>DivestAcquire</ownership>
+          <sharing>PublishSubscribe</sharing>
+          <transportation>HLAreliable</transportation>
+          <order>Receive</order>
+        </attribute>
+
+        <attribute>
+          <name>y</name>
+          <dataType>HLAfloat64BE</dataType>
+          <updateType>Conditional</updateType>
+          <ownership>DivestAcquire</ownership>
+          <sharing>PublishSubscribe</sharing>
+          <transportation>HLAreliable</transportation>
+          <order>Receive</order>
+        </attribute>
+
+        <attribute>
+          <name>yaw</name>
+          <dataType>HLAfloat64BE</dataType>
+          <updateType>Conditional</updateType>
+          <ownership>DivestAcquire</ownership>
+          <sharing>PublishSubscribe</sharing>
+          <transportation>HLAreliable</transportation>
+          <order>Receive</order>
+        </attribute>
+
+      </objectClass>
+    </objectClass>
+  </objects>
+
+  <interactions>
+    <interactionClass>
+      <name>HLAinteractionRoot</name>
+    </interactionClass>
+  </interactions>
+</objectModel>

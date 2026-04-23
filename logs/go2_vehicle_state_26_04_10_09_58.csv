@@ -1,0 +1,1 @@
+seq,robot_id,timestamp_ns,publish_time_ns,publish_dt_ms,x,y,yaw_rad,yaw_deg,v_linear,v_angular
