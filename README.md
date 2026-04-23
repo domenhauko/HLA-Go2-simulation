@@ -229,6 +229,7 @@ export RTI_HOME="/path/to/portico-2.1.4"
 export RTI_RID_FILE="$(pwd)/RTI.rid"
 python3 hla_viewer.py
 ```
+![alt text](HLAviewer.png)
 
 ---
 
