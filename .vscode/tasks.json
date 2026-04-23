@@ -1,0 +1,138 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Go2 Gazebo simulation",
+      "type": "shell",
+      "command": "echo 'Starting Go2 Gazebo simulation...'; source /opt/ros/humble/setup.bash && source ~/go2_ws/install/setup.bash && ros2 launch go2_config gazebo.launch.py rviz:=true",
+      "group": "build",
+      "problemMatcher": [],
+      "options": {
+        "shell": {
+          "executable": "/bin/bash",
+          "args": ["-c"]
+        }
+      },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "gazebo",
+        "reveal": "silent",
+        "showReuseMessage": false
+      }
+    },
+    {
+      "label": "Go2 Gazebo teleoperation",
+      "type": "shell",
+      "command": "echo 'Starting Go2 Gazebo teleoperation...'; source /opt/ros/humble/setup.bash && source ~/go2_ws/install/setup.bash && ros2 run teleop_twist_keyboard teleop_twist_keyboard",
+      "group": "build",
+      "problemMatcher": [],
+      "options": {
+        "shell": {
+          "executable": "/bin/bash",
+          "args": ["-c"]
+        }
+      },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "gazebo",
+        "reveal": "silent",
+        "showReuseMessage": false
+      }
+    },
+    {
+      "label": "MQTT server",
+      "type": "shell",
+      "command": "echo 'Starting MQTT server...'; sudo systemctl start mosquitto",
+      "group": "build",
+      "problemMatcher": [],
+      "options": {
+        "shell": {
+          "executable": "/bin/bash",
+          "args": ["-c"]
+        }
+      },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "mqtt",
+        "reveal": "silent",
+        "showReuseMessage": false
+      }
+    },
+    {
+      "label": "MQTT Adapter",
+      "type": "shell",
+      "command": "echo 'Starting MQTT Adapter...'; source /opt/ros/humble/setup.bash && source ~/go2_ws/install/setup.bash && python3 \"${workspaceFolder}/go2_robot_state_adapter.py\" --ros-args -p robot_id:=go2_001 -p publish_rate_hz:=20.0 -p mqtt_broker:=127.0.0.1 -p mqtt_port:=1883 -p mqtt_topic:=go2/vehicle_state",
+      "group": "build",
+      "problemMatcher": [],
+      "options": {
+        "shell": {
+          "executable": "/bin/bash",
+          "args": ["-c"]
+        }
+      },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "mqtt",
+        "reveal": "silent",
+        "showReuseMessage": false
+      }
+    },
+    {
+      "label": "MQTT Receiver",
+      "type": "shell",
+      "command": "echo 'Starting MQTT Receiver...'; python3 \"${workspaceFolder}/mqtt_gateway_receiver.py\"",
+      "group": "build",
+      "problemMatcher": [],
+      "options": {
+        "shell": {
+          "executable": "/bin/bash",
+          "args": ["-c"]
+        }
+      },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "mqtt",
+        "reveal": "silent",
+        "showReuseMessage": false
+      }
+    },
+    {
+      "label": "HLA gateway",
+      "type": "shell",
+      "command": "echo 'Starting HLA gateway...'; export RTI_HOME=\"${workspaceFolder}/../../portico-2.1.4\" && export RTI_RID_FILE=\"${workspaceFolder}/RTI.rid\" && export _JAVA_OPTIONS=\"-Djava.net.preferIPv4Stack=true\" && python3 \"${workspaceFolder}/hla_gateway_receiver.py\"",
+      "group": "build",
+      "problemMatcher": [],
+      "options": {
+        "shell": {
+          "executable": "/bin/bash",
+          "args": ["-c"]
+        }
+      },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "hla",
+        "reveal": "silent",
+        "showReuseMessage": false
+      }
+    },
+    {
+      "label": "HLA viewer",
+      "type": "shell",
+      "command": "echo 'Starting HLA gateway...'; export RTI_HOME=\"${workspaceFolder}/../../portico-2.1.4\" && export RTI_RID_FILE=\"${workspaceFolder}/RTI.rid\" && export _JAVA_OPTIONS=\"-Djava.net.preferIPv4Stack=true\" && python3 \"${workspaceFolder}/hla_viewer.py\"",
+      "group": "build",
+      "problemMatcher": [],
+      "options": {
+        "shell": {
+          "executable": "/bin/bash",
+          "args": ["-c"]
+        }
+      },
+      "presentation": {
+        "panel": "dedicated",
+        "group": "hla",
+        "reveal": "silent",
+        "showReuseMessage": false
+      }
+    }
+  ]
+}

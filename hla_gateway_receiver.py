@@ -16,7 +16,7 @@ PRTI_HOME = os.environ.get(
     "RTI_HOME",
     "/home/domen/Documents/LAK/portico-2.1.4"
 )
-LOCAL_SETTINGS = "192.168.0.100:8989"
+LOCAL_SETTINGS = "127.0.0.1:8989"
 FEDERATION_NAME = "DemoFederation"
 FEDERATE_NAME = "GatewayFederate"
 FEDERATE_TYPE = "Gateway"
